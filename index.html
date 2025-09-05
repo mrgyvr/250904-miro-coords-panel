@@ -2,59 +2,26 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>CoordsPanel – Entrypoint (debug)</title>
+    <title>CoordsPanel – Entrypoint</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>body{margin:0;font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}#hint{padding:16px}</style>
-    <!-- Force-load the Web SDK v2 (helps when the runtime iframe hasn't injected it yet) -->
-    <script src="https://miro.com/app/static/sdk/v2/miro.js"></script>
   </head>
   <body>
     <div id="hint"></div>
-
     <script type="module">
       const hint = document.getElementById('hint');
-      const say  = (h)=>{ hint.innerHTML = h; };
+      const PANEL_URL = new URL('panel.html', import.meta.url).href;
 
-      // Build an ABSOLUTE URL to panel.html with a cache-buster
-      const PANEL_URL = new URL('panel.html?v=' + Date.now(), import.meta.url).href;
-
-      async function boot() {
-        // Wait for the SDK to handshake with the board (if we're inside a board)
-        if (typeof miro?.onReady === 'function') {
-          await miro.onReady();
-        }
-
-        // Preflight: make sure panel.html is reachable
-        const resp = await fetch(PANEL_URL, { cache: 'no-store' });
-        if (!resp.ok) {
-          try { await miro.board?.notifications?.showError?.('CoordsPanel: panel.html HTTP ' + resp.status); } catch {}
-          return;
-        }
-
-        // Toolbar icon → open panel (absolute URL)
-        miro.board.ui.on('icon:click', () => {
-          miro.board.ui.openPanel({ url: PANEL_URL }).catch(() => {});
-        });
-
-        // TEMP (debug): auto-open so you can see it immediately
-        await miro.board.ui.openPanel({ url: PANEL_URL });
-        try { await miro.board.notifications.showInfo('CoordsPanel loaded ✅'); } catch {}
-      }
-
-      // If opened outside a board, show a friendly hint
       if (!('miro' in window)) {
-        say('<b>This page runs inside a Miro board.</b><br>Open a board in the team where the app is installed.');
+        hint.innerHTML = '<b>This page runs inside a Miro board.</b>';
       } else {
-        // Poll briefly until the SDK is ready in this iframe
-        let tries = 0, timer = setInterval(async () => {
-          if (miro?.board) {
-            clearInterval(timer);
-            try { await boot(); } catch (e) { console.log('CoordsPanel boot error:', e); }
-          } else if (++tries > 60) {
-            clearInterval(timer);
-            console.log('CoordsPanel: SDK not detected in iframe after waiting.');
-          }
-        }, 200);
+        // If onReady exists, wait for it; otherwise proceed.
+        if (typeof miro.onReady === 'function') { await miro.onReady(); }
+
+        // Hook the toolbar icon → open the panel
+        miro.board.ui.on('icon:click', () => {
+          miro.board.ui.openPanel({ url: PANEL_URL }).catch(()=>{});
+        });
       }
     </script>
   </body>
