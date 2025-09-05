@@ -2,165 +2,189 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Miro Coords Panel</title>
+    <title>CoordsPanel</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
-      body { font: 13px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; }
-      .wrap { padding: 12px; width: 320px; }
-      h3 { margin: 0 0 8px; font-size: 14px; }
-      .row { margin-bottom: 10px; }
-      label { display:block; font-weight:600; margin-bottom:4px; }
-      input[type="text"] {
-        width: 100%; box-sizing: border-box; padding: 8px;
-        border: 1px solid #dcdfe3; border-radius: 6px;
-      }
-      .muted { color:#6b7280; font-size:12px; margin-top:4px; }
-      pre { background:#f6f7f9; padding:8px; border-radius:6px; overflow:auto; }
-      .row-inline { display:flex; gap:8px; align-items:center; }
-      button {
-        padding:6px 10px; border:1px solid #dcdfe3; border-radius:6px;
-        background:#fff; cursor:pointer;
-      }
-      .ok { color: #059669; font-weight:600; font-size:12px; margin-left:8px; }
-      .warn { color:#b45309; font-size:12px; }
+      :root { color-scheme: light dark; }
+      body { margin:0; font:13px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+      .wrap { padding:12px; width: 340px; box-sizing: border-box; }
+      h3 { margin:0 0 8px; font-size:14px; }
+      label { display:block; font-weight:600; margin:10px 0 4px; }
+      input[type="text"] { width:100%; padding:8px; border:1px solid #dcdfe3; border-radius:6px; box-sizing:border-box; }
+      input[readonly] { background: rgba(0,0,0,0.03); }
+      .grid { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
+      .row { display:flex; gap:8px; align-items:center; }
+      button { padding:6px 10px; border:1px solid #dcdfe3; border-radius:6px; background:#fff; cursor:pointer; }
+      .muted { opacity:.7; font-size:12px; }
+      .ok { color:#0b8f3a; }
+      .warn { color:#b36b00; }
+      .err { color:#b00020; }
+      .spacer { height:8px; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px; }
     </style>
+    <!-- (optional; harmless if SDK already injected) -->
+    <script src="https://miro.com/app/static/sdk/v2/miro.js"></script>
   </head>
   <body>
     <div class="wrap">
-      <h3>Coords Panel</h3>
+      <h3>CoordsPanel</h3>
 
-      <!-- Live selection info -->
-      <div class="row">
-        <div id="status">Select any item…</div>
-        <pre id="coords"></pre>
-      </div>
+      <div id="status" class="muted">Select any item on the board…</div>
 
-      <!-- 1) INPUT: URL of your page that embeds the Miro iframe -->
-      <div class="row">
-        <label for="baseUrl">Your page URL (with the embedded board)</label>
-        <input id="baseUrl" type="text" placeholder="https://parkerthatch.com/pages/pt-mood-board" />
-        <div class="muted">Paste the URL of the page on your site that contains the iframe embed.</div>
-      </div>
-
-      <!-- 2) OUTPUT: Shareable deep link with ?cx, ?cy, z=1 -->
-      <div class="row">
-        <label for="shareUrl">Shareable link (auto-generated)</label>
-        <input id="shareUrl" type="text" readonly />
-        <div class="row-inline">
-          <button id="copyBtn">Copy</button>
-          <span id="copied" class="ok" style="display:none;">Copied!</span>
+      <div class="grid">
+        <div>
+          <label for="cx">Center X</label>
+          <input id="cx" type="text" class="mono" readonly />
         </div>
-        <div class="muted">
-          This link appends <code>?cx=&lt;x&gt;&amp;cy=&lt;y&gt;&amp;z=1</code>. You can edit <code>z</code> after copying if you want a different initial zoom.
+        <div>
+          <label for="cy">Center Y</label>
+          <input id="cy" type="text" class="mono" readonly />
         </div>
       </div>
 
       <div class="row">
-        <span id="hint" class="warn"></span>
+        <div style="flex:1">
+          <label for="z">Zoom (z)</label>
+          <input id="z" type="text" class="mono" placeholder="1" />
+        </div>
+        <div style="width:120px">
+          <label>&nbsp;</label>
+          <button id="resetZ" type="button">Reset to 1</button>
+        </div>
       </div>
+
+      <label for="baseUrl">Your page URL (with embedded board)</label>
+      <input id="baseUrl" type="text" placeholder="https://parkerthatch.com/pages/pt-mood-board" />
+
+      <label for="shareUrl">Shareable link</label>
+      <input id="shareUrl" type="text" class="mono" readonly />
+
+      <div class="row">
+        <button id="copy" type="button">Copy</button>
+        <span id="hint" class="muted"></span>
+      </div>
+
+      <div class="spacer"></div>
+      <div class="muted">Tip: Link updates whenever selection or inputs change.</div>
     </div>
 
     <script type="module">
       const statusEl = document.getElementById('status');
-      const pre      = document.getElementById('coords');
-      const baseUrl  = document.getElementById('baseUrl');
-      const shareUrl = document.getElementById('shareUrl');
-      const copyBtn  = document.getElementById('copyBtn');
-      const copied   = document.getElementById('copied');
-      const hint     = document.getElementById('hint');
+      const cxEl = document.getElementById('cx');
+      const cyEl = document.getElementById('cy');
+      const zEl = document.getElementById('z');
+      const baseUrlEl = document.getElementById('baseUrl');
+      const shareUrlEl = document.getElementById('shareUrl');
+      const copyBtn = document.getElementById('copy');
+      const resetZBtn = document.getElementById('resetZ');
+      const hintEl = document.getElementById('hint');
 
-      let latestItem = null;
-
-      function isValidAbsoluteUrl(u) {
-        try { const parsed = new URL(u); return !!parsed.protocol && !!parsed.host; }
-        catch { return false; }
+      // default zoom = 1 unless user provides
+      function getZoom() {
+        const v = (zEl.value || '').trim();
+        const n = Number(v);
+        return Number.isFinite(n) && n > 0 ? n : 1;
       }
 
-      function buildShareUrl(base, cx, cy, z = 1) {
+      function fmt(n) {
+        // trim to 2 decimals without scientific notation
+        return Number(n.toFixed(2)).toString();
+      }
+
+      function buildLink(sel) {
+        shareUrlEl.value = '';
+        hintEl.textContent = '';
+
+        // require base URL
+        const raw = (baseUrlEl.value || '').trim();
+        if (!raw) {
+          hintEl.textContent = 'Enter your page URL above.';
+          return;
+        }
+
+        // need a selection with x/y
+        if (!sel || typeof sel.x !== 'number' || typeof sel.y !== 'number') {
+          hintEl.textContent = 'Select an item to generate link.';
+          return;
+        }
+
+        // build URL with cx, cy, z params
+        let u;
         try {
-          const u = new URL(base);
-          u.searchParams.set('cx', cx);
-          u.searchParams.set('cy', cy);
-          u.searchParams.set('z', z);
-          return u.href;
+          u = new URL(raw, location.href); // supports bare domains, paths, etc.
         } catch {
-          const sep = base.includes('?') ? '&' : '?';
-          return `${base}${sep}cx=${encodeURIComponent(cx)}&cy=${encodeURIComponent(cy)}&z=${encodeURIComponent(z)}`;
+          hintEl.textContent = 'Base URL is not valid.';
+          return;
         }
+
+        u.searchParams.set('cx', fmt(sel.x));
+        u.searchParams.set('cy', fmt(sel.y));
+        u.searchParams.set('z', fmt(getZoom()));
+
+        shareUrlEl.value = u.href;
       }
 
-      function renderItem(it) {
+      async function syncAndRender(it) {
         if (!it) {
-          statusEl.textContent = 'Select any item…';
-          pre.textContent = '';
-          latestItem = null;
-          updateShareUrl();
+          cxEl.value = '';
+          cyEl.value = '';
+          statusEl.textContent = 'Select any item on the board…';
+          buildLink(null);
           return;
         }
-        const data = {
-          id: it.id, type: it.type,
-          x: Number(it.x.toFixed(2)),
-          y: Number(it.y.toFixed(2)),
-          width: Number(it.width.toFixed(2)),
-          height: Number(it.height.toFixed(2)),
-          rotation: Number((it.rotation || 0).toFixed(2))
-        };
-        latestItem = data;
-        statusEl.textContent = `Selected: ${it.type} (${it.id})`;
-        pre.textContent = JSON.stringify(data, null, 2);
-        updateShareUrl();
+        try { await it.sync?.(); } catch {}
+        const x = Number(it.x ?? NaN);
+        const y = Number(it.y ?? NaN);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          statusEl.textContent = 'Item has no coordinates yet.';
+          cxEl.value = ''; cyEl.value = '';
+          buildLink(null);
+          return;
+        }
+        cxEl.value = fmt(x);
+        cyEl.value = fmt(y);
+        statusEl.textContent = `Selected: ${it.type} (${it.id.slice(0,6)}…)`;
+        buildLink({ x, y });
       }
 
-      function updateShareUrl() {
-        copied.style.display = 'none';
-        if (!latestItem) {
-          shareUrl.value = '';
-          hint.textContent = 'Tip: select an item to generate a link with its center coordinates.';
-          return;
-        }
-        const base = baseUrl.value.trim();
-        const cx = latestItem.x;
-        const cy = latestItem.y;
-        const z  = 1; // default zoom requested
-
-        if (!base) {
-          shareUrl.value = '';
-          hint.textContent = 'Paste your page URL above to generate the full link.';
-          return;
-        }
-
-        const url = buildShareUrl(base, cx, cy, z);
-        shareUrl.value = url;
-        hint.textContent = isValidAbsoluteUrl(base) ? '' :
-          'Note: base URL is not absolute. The link will still be built, but absolute URLs are recommended.';
-      }
-
-      baseUrl.addEventListener('input', updateShareUrl);
+      // inputs re-build the link
+      [baseUrlEl, zEl].forEach(el => el.addEventListener('input', () => {
+        const x = parseFloat(cxEl.value), y = parseFloat(cyEl.value);
+        if (Number.isFinite(x) && Number.isFinite(y)) buildLink({ x, y });
+        else buildLink(null);
+      }));
+      resetZBtn.addEventListener('click', () => {
+        zEl.value = '';
+        const x = parseFloat(cxEl.value), y = parseFloat(cyEl.value);
+        if (Number.isFinite(x) && Number.isFinite(y)) buildLink({ x, y });
+      });
 
       copyBtn.addEventListener('click', async () => {
-        if (!shareUrl.value) return;
+        if (!shareUrlEl.value) return;
         try {
-          await navigator.clipboard.writeText(shareUrl.value);
-          copied.style.display = 'inline';
-          setTimeout(() => (copied.style.display = 'none'), 1200);
+          await navigator.clipboard.writeText(shareUrlEl.value);
+          copyBtn.textContent = 'Copied!';
+          setTimeout(() => { copyBtn.textContent = 'Copy'; }, 900);
         } catch {
-          copied.style.display = 'none';
-          alert('Copy failed — please select and copy manually.');
+          // fallback: select text
+          shareUrlEl.select();
+          hintEl.textContent = 'Press ⌘/Ctrl+C to copy.';
         }
       });
 
-      // Initial selection snapshot
+      // Initial selection & live updates
       (async () => {
-        const sel = await miro.board.getSelection();
-        renderItem(sel[0]);
+        try {
+          const sel = await miro.board.getSelection();
+          await syncAndRender(sel[0] || null);
+        } catch (e) {
+          statusEl.textContent = 'Unable to read selection. Do you have boards:read scope?';
+        }
       })();
 
-      // Live updates on selection change
       miro.board.ui.on('selection:update', async (e) => {
-        const it = e.items?.[0];
-        if (!it) return renderItem(null);
-        await it.sync?.();
-        renderItem(it);
+        const it = e.items?.[0] || null;
+        await syncAndRender(it);
       });
     </script>
   </body>
