@@ -4,29 +4,63 @@
     <meta charset="utf-8" />
     <title>Miro Coords Panel – App Entrypoint</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body { font:14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin:0; }
+      #log { padding:16px; }
+      #log .line { margin:6px 0; }
+      code { background:#f5f5f7; padding:2px 4px; border-radius:4px; }
+    </style>
   </head>
   <body>
-    <script type="module">
-      // If opened outside Miro (e.g., directly in a browser tab), show a hint
-      if (!window.miro || !miro.board) {
-        const msg = document.createElement('div');
-        msg.style.cssText = 'font:14px/1.4 system-ui; padding:16px;';
-        msg.innerHTML = `
-          <strong>This page is meant to run inside a Miro board.</strong><br>
-          Your hosting looks good. Now open a board in the team where the app is installed.
-        `;
-        document.body.appendChild(msg);
-      } else {
-        // Register the toolbar icon click → open our panel
-        miro.board.ui.on('icon:click', () => {
-          miro.board.ui.openPanel({ url: 'panel.html' });
-        });
+    <div id="log"></div>
 
-        // TEMP: Auto-open the panel to prove the app is loading on the board.
-        // After you see the panel open successfully, you can comment this out.
-        miro.board.ui.openPanel({ url: 'panel.html' });
+    <script type="module">
+      const logBox = document.getElementById('log');
+      const log = (msg) => {
+        console.log('[coords-panel]', msg);
+        const d = document.createElement('div');
+        d.className = 'line';
+        d.textContent = msg;
+        logBox.appendChild(d);
+      };
+
+      if (!('miro' in window)) {
+        log('This page is hosted correctly, but it is running OUTSIDE Miro.');
+        log('Open a board in the team where the app is installed. Miro will load this file inside an iframe.');
+      } else {
+        log('Miro SDK detected. Initializing…');
+        try {
+          // v2 usually exposes miro.onReady; if not, proceed anyway.
+          if (typeof miro.onReady === 'function') {
+            await miro.onReady();
+            log('miro.onReady resolved.');
+          }
+        } catch (e) {
+          log('miro.onReady threw (continuing): ' + (e?.message || e));
+        }
+
+        try {
+          miro.board.ui.on('icon:click', () => {
+            miro.board.ui.openPanel({ url: 'panel.html' }).catch(err => {
+              log('openPanel (icon click) error: ' + (err?.message || err));
+            });
+          });
+          log('Toolbar icon handler registered.');
+        } catch (e) {
+          log('Failed to register icon handler: ' + (e?.message || e));
+        }
+
+        // TEMP: Auto-open panel to prove load path
+        try {
+          await miro.board.ui.openPanel({ url: 'panel.html' });
+          log('openPanel auto-open succeeded.');
+        } catch (e) {
+          log('openPanel auto-open error: ' + (e?.message || e));
+          log('Check that panel.html exists and is reachable over HTTPS.');
+        }
       }
     </script>
   </body>
 </html>
+
 
