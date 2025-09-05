@@ -7,13 +7,26 @@
   </head>
   <body>
     <script type="module">
-      // Registers a toolbar icon for your app. Clicking it opens the panel UI.
-      await miro.board.ui.on('icon:click', async () => {
-        await miro.board.ui.openPanel({ url: 'panel.html' });
-      });
+      // If opened outside Miro (e.g., directly in a browser tab), show a hint
+      if (!window.miro || !miro.board) {
+        const msg = document.createElement('div');
+        msg.style.cssText = 'font:14px/1.4 system-ui; padding:16px;';
+        msg.innerHTML = `
+          <strong>This page is meant to run inside a Miro board.</strong><br>
+          Your hosting looks good. Now open a board in the team where the app is installed.
+        `;
+        document.body.appendChild(msg);
+      } else {
+        // Register the toolbar icon click → open our panel
+        miro.board.ui.on('icon:click', () => {
+          miro.board.ui.openPanel({ url: 'panel.html' });
+        });
 
-      // If you’d rather auto-open the panel whenever the app loads, uncomment:
-      // await miro.board.ui.openPanel({ url: 'panel.html' });
+        // TEMP: Auto-open the panel to prove the app is loading on the board.
+        // After you see the panel open successfully, you can comment this out.
+        miro.board.ui.openPanel({ url: 'panel.html' });
+      }
     </script>
   </body>
 </html>
+
