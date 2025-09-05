@@ -5,23 +5,49 @@
     <title>CoordsPanel – Entrypoint</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>body{margin:0;font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}#hint{padding:16px}</style>
+    <!-- Keep the SDK include: harmless when injected, essential when it isn't -->
+    <script src="https://miro.com/app/static/sdk/v2/miro.js"></script>
   </head>
   <body>
     <div id="hint"></div>
     <script type="module">
       const hint = document.getElementById('hint');
+
+      // Toggle this to true if you want the panel to open automatically once.
+      const AUTO_OPEN_ON_LOAD = false;
+
+      // Build an absolute URL to the panel (no cache-buster for prod)
       const PANEL_URL = new URL('panel.html', import.meta.url).href;
 
-      if (!('miro' in window)) {
-        hint.innerHTML = '<b>This page runs inside a Miro board.</b>';
-      } else {
-        // If onReady exists, wait for it; otherwise proceed.
-        if (typeof miro.onReady === 'function') { await miro.onReady(); }
+      async function start() {
+        if (typeof miro?.onReady === 'function') {
+          await miro.onReady();
+        }
 
-        // Hook the toolbar icon → open the panel
+        // Register toolbar icon → open panel
         miro.board.ui.on('icon:click', () => {
           miro.board.ui.openPanel({ url: PANEL_URL }).catch(()=>{});
         });
+
+        if (AUTO_OPEN_ON_LOAD) {
+          try { await miro.board.ui.openPanel({ url: PANEL_URL }); } catch {}
+        }
+      }
+
+      // Helpful message if someone opens this file outside Miro
+      if (!('miro' in window)) {
+        hint.innerHTML = '<b>This page runs inside a Miro board.</b>';
+      } else {
+        // Small poll to handle slow SDK injection into this iframe
+        let tries = 0, t = setInterval(async () => {
+          if (miro?.board) {
+            clearInterval(t);
+            try { await start(); } catch (e) { console.log('start() error', e); }
+          } else if (++tries > 60) {
+            clearInterval(t);
+            console.log('SDK not detected in this iframe (runtime frame not launched?)');
+          }
+        }, 200);
       }
     </script>
   </body>
