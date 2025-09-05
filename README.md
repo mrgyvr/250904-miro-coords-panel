@@ -1,5 +1,7 @@
 # Miro Coords Panel
 
+250904 mg created with chatgpt help
+
 A tiny, zero-build Web SDK app for **Miro** that shows the **center coordinates** of the currently selected object and generates a **shareable URL** to your website page that embeds a Miro board, centered on that object.
 
 - No servers.  
