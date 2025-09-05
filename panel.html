@@ -1,0 +1,167 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Miro Coords Panel</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body { font: 13px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; }
+      .wrap { padding: 12px; width: 320px; }
+      h3 { margin: 0 0 8px; font-size: 14px; }
+      .row { margin-bottom: 10px; }
+      label { display:block; font-weight:600; margin-bottom:4px; }
+      input[type="text"] {
+        width: 100%; box-sizing: border-box; padding: 8px;
+        border: 1px solid #dcdfe3; border-radius: 6px;
+      }
+      .muted { color:#6b7280; font-size:12px; margin-top:4px; }
+      pre { background:#f6f7f9; padding:8px; border-radius:6px; overflow:auto; }
+      .row-inline { display:flex; gap:8px; align-items:center; }
+      button {
+        padding:6px 10px; border:1px solid #dcdfe3; border-radius:6px;
+        background:#fff; cursor:pointer;
+      }
+      .ok { color: #059669; font-weight:600; font-size:12px; margin-left:8px; }
+      .warn { color:#b45309; font-size:12px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h3>Coords Panel</h3>
+
+      <!-- Live selection info -->
+      <div class="row">
+        <div id="status">Select any item…</div>
+        <pre id="coords"></pre>
+      </div>
+
+      <!-- 1) INPUT: URL of your page that embeds the Miro iframe -->
+      <div class="row">
+        <label for="baseUrl">Your page URL (with the embedded board)</label>
+        <input id="baseUrl" type="text" placeholder="https://parkerthatch.com/pages/pt-mood-board" />
+        <div class="muted">Paste the URL of the page on your site that contains the iframe embed.</div>
+      </div>
+
+      <!-- 2) OUTPUT: Shareable deep link with ?cx, ?cy, z=1 -->
+      <div class="row">
+        <label for="shareUrl">Shareable link (auto-generated)</label>
+        <input id="shareUrl" type="text" readonly />
+        <div class="row-inline">
+          <button id="copyBtn">Copy</button>
+          <span id="copied" class="ok" style="display:none;">Copied!</span>
+        </div>
+        <div class="muted">
+          This link appends <code>?cx=&lt;x&gt;&amp;cy=&lt;y&gt;&amp;z=1</code>. You can edit <code>z</code> after copying if you want a different initial zoom.
+        </div>
+      </div>
+
+      <div class="row">
+        <span id="hint" class="warn"></span>
+      </div>
+    </div>
+
+    <script type="module">
+      const statusEl = document.getElementById('status');
+      const pre      = document.getElementById('coords');
+      const baseUrl  = document.getElementById('baseUrl');
+      const shareUrl = document.getElementById('shareUrl');
+      const copyBtn  = document.getElementById('copyBtn');
+      const copied   = document.getElementById('copied');
+      const hint     = document.getElementById('hint');
+
+      let latestItem = null;
+
+      function isValidAbsoluteUrl(u) {
+        try { const parsed = new URL(u); return !!parsed.protocol && !!parsed.host; }
+        catch { return false; }
+      }
+
+      function buildShareUrl(base, cx, cy, z = 1) {
+        try {
+          const u = new URL(base);
+          u.searchParams.set('cx', cx);
+          u.searchParams.set('cy', cy);
+          u.searchParams.set('z', z);
+          return u.href;
+        } catch {
+          const sep = base.includes('?') ? '&' : '?';
+          return `${base}${sep}cx=${encodeURIComponent(cx)}&cy=${encodeURIComponent(cy)}&z=${encodeURIComponent(z)}`;
+        }
+      }
+
+      function renderItem(it) {
+        if (!it) {
+          statusEl.textContent = 'Select any item…';
+          pre.textContent = '';
+          latestItem = null;
+          updateShareUrl();
+          return;
+        }
+        const data = {
+          id: it.id, type: it.type,
+          x: Number(it.x.toFixed(2)),
+          y: Number(it.y.toFixed(2)),
+          width: Number(it.width.toFixed(2)),
+          height: Number(it.height.toFixed(2)),
+          rotation: Number((it.rotation || 0).toFixed(2))
+        };
+        latestItem = data;
+        statusEl.textContent = `Selected: ${it.type} (${it.id})`;
+        pre.textContent = JSON.stringify(data, null, 2);
+        updateShareUrl();
+      }
+
+      function updateShareUrl() {
+        copied.style.display = 'none';
+        if (!latestItem) {
+          shareUrl.value = '';
+          hint.textContent = 'Tip: select an item to generate a link with its center coordinates.';
+          return;
+        }
+        const base = baseUrl.value.trim();
+        const cx = latestItem.x;
+        const cy = latestItem.y;
+        const z  = 1; // default zoom requested
+
+        if (!base) {
+          shareUrl.value = '';
+          hint.textContent = 'Paste your page URL above to generate the full link.';
+          return;
+        }
+
+        const url = buildShareUrl(base, cx, cy, z);
+        shareUrl.value = url;
+        hint.textContent = isValidAbsoluteUrl(base) ? '' :
+          'Note: base URL is not absolute. The link will still be built, but absolute URLs are recommended.';
+      }
+
+      baseUrl.addEventListener('input', updateShareUrl);
+
+      copyBtn.addEventListener('click', async () => {
+        if (!shareUrl.value) return;
+        try {
+          await navigator.clipboard.writeText(shareUrl.value);
+          copied.style.display = 'inline';
+          setTimeout(() => (copied.style.display = 'none'), 1200);
+        } catch {
+          copied.style.display = 'none';
+          alert('Copy failed — please select and copy manually.');
+        }
+      });
+
+      // Initial selection snapshot
+      (async () => {
+        const sel = await miro.board.getSelection();
+        renderItem(sel[0]);
+      })();
+
+      // Live updates on selection change
+      miro.board.ui.on('selection:update', async (e) => {
+        const it = e.items?.[0];
+        if (!it) return renderItem(null);
+        await it.sync?.();
+        renderItem(it);
+      });
+    </script>
+  </body>
+</html>
