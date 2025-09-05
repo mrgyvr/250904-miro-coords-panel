@@ -2,47 +2,54 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Coords Panel – Entrypoint (Debug)</title>
+    <title>Coords Panel – Entrypoint (Auto-start)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <style>
-      /* purely for a friendly message if opened outside Miro */
-      body { margin: 0; font: 14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-      #hint { padding: 16px; }
-    </style>
   </head>
   <body>
-    <div id="hint"></div>
-
     <script type="module">
-      const hint = document.getElementById('hint');
-      const show = (html) => { hint.innerHTML = html; };
-
-      // Cache-busted panel URL so updates to panel.html show immediately
+      // Cache-bust panel while testing so updates always show
       const PANEL_URL = `panel.html?v=${Date.now()}`;
 
-      if (!('miro' in window)) {
-        // Hosted correctly but opened outside a Miro board
-        show('<b>This page is meant to run inside a Miro board.</b><br>Open a board in the team where the app is installed.');
-      } else {
+      async function boot() {
         try {
           // Optional: wait for SDK readiness if available
-          if (typeof miro.onReady === 'function') {
+          if (typeof miro?.onReady === 'function') {
             await miro.onReady();
           }
 
-          // Register toolbar icon click → open panel (also uses cache-busted URL)
+          // Register toolbar icon → open panel
           miro.board.ui.on('icon:click', () => {
             miro.board.ui.openPanel({ url: PANEL_URL }).catch(() => {});
           });
 
-          // TEMP: auto-open the panel so you can see it immediately while debugging
+          // TEMP: auto-open panel so you can see it immediately
           await miro.board.ui.openPanel({ url: PANEL_URL });
 
-          // Tip: once you confirm it opens, remove the auto-open line above.
+          // Visible confirmation in the board UI
+          await miro.board.notifications.showInfo('Coords Panel loaded ✅');
+
+          return true;
         } catch (e) {
-          show(`<div style="color:#b00020;">Failed to open panel: ${e?.message || e}</div>`);
+          // If the SDK isn't ready yet, let the poller retry
+          return false;
         }
       }
+
+      // Poll for the SDK to be injected into this iframe
+      let tries = 0;
+      const maxTries = 60; // ~12s total at 200ms
+      const timer = setInterval(async () => {
+        if (window.miro && window.miro.board) {
+          const ok = await boot();
+          if (ok) clearInterval(timer);
+        }
+        if (++tries >= maxTries) {
+          clearInterval(timer);
+          // Optional: show a message if we never saw the SDK
+          // (You won't see this in the board UI; this iframe is headless.)
+          console.log('Coords Panel: SDK not detected in this iframe after waiting.');
+        }
+      }, 200);
     </script>
   </body>
 </html>
