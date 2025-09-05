@@ -1,0 +1,19 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Miro Coords Panel – App Entrypoint</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+  </head>
+  <body>
+    <script type="module">
+      // Registers a toolbar icon for your app. Clicking it opens the panel UI.
+      await miro.board.ui.on('icon:click', async () => {
+        await miro.board.ui.openPanel({ url: 'panel.html' });
+      });
+
+      // If you’d rather auto-open the panel whenever the app loads, uncomment:
+      // await miro.board.ui.openPanel({ url: 'panel.html' });
+    </script>
+  </body>
+</html>
