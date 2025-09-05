@@ -2,54 +2,73 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Coords Panel – Entrypoint (Auto-start)</title>
+    <title>Coords Panel – Entrypoint (absolute URL + retries)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
   </head>
   <body>
     <script type="module">
-      // Cache-bust panel while testing so updates always show
-      const PANEL_URL = `panel.html?v=${Date.now()}`;
+      // Build an absolute URL to panel.html relative to THIS file
+      const PANEL_URL = new URL('panel.html?v=' + Date.now(), import.meta.url).href;
 
       async function boot() {
-        try {
-          // Optional: wait for SDK readiness if available
-          if (typeof miro?.onReady === 'function') {
-            await miro.onReady();
-          }
-
-          // Register toolbar icon → open panel
-          miro.board.ui.on('icon:click', () => {
-            miro.board.ui.openPanel({ url: PANEL_URL }).catch(() => {});
-          });
-
-          // TEMP: auto-open panel so you can see it immediately
-          await miro.board.ui.openPanel({ url: PANEL_URL });
-
-          // Visible confirmation in the board UI
-          await miro.board.notifications.showInfo('Coords Panel loaded ✅');
-
-          return true;
-        } catch (e) {
-          // If the SDK isn't ready yet, let the poller retry
-          return false;
+        // Optional: wait for SDK readiness if present
+        if (typeof miro?.onReady === 'function') {
+          await miro.onReady();
         }
+
+        // Preflight check: make sure panel.html is reachable (200 OK)
+        try {
+          const r = await fetch(PANEL_URL, { cache: 'no-store' });
+          if (!r.ok) throw new Error('panel.html HTTP ' + r.status);
+        } catch (e) {
+          // Visible error so you know what went wrong
+          await miro.board?.notifications?.showError?.('Coords Panel: panel.html not reachable: ' + (e?.message || e));
+          return;
+        }
+
+        // Click handler for your toolbar icon
+        miro.board.ui.on('icon:click', () => {
+          miro.board.ui.openPanel({ url: PANEL_URL }).catch(() => {});
+        });
+
+        // TEMP: Try to auto-open a few times to beat race conditions/caching
+        let attempts = 0;
+        const maxAttempts = 5;
+        const tryOpen = async () => {
+          attempts++;
+          try {
+            await miro.board.ui.openPanel({ url: PANEL_URL });
+            await miro.board.notifications.showInfo('Coords Panel opened ✅');
+            return true;
+          } catch (e) {
+            if (attempts < maxAttempts) {
+              setTimeout(tryOpen, 400);
+              return false;
+            } else {
+              await miro.board.notifications.showError('Coords Panel: openPanel failed: ' + (e?.message || e));
+              return false;
+            }
+          }
+        };
+        tryOpen();
       }
 
-      // Poll for the SDK to be injected into this iframe
-      let tries = 0;
-      const maxTries = 60; // ~12s total at 200ms
-      const timer = setInterval(async () => {
-        if (window.miro && window.miro.board) {
-          const ok = await boot();
-          if (ok) clearInterval(timer);
-        }
-        if (++tries >= maxTries) {
-          clearInterval(timer);
-          // Optional: show a message if we never saw the SDK
-          // (You won't see this in the board UI; this iframe is headless.)
-          console.log('Coords Panel: SDK not detected in this iframe after waiting.');
-        }
-      }, 200);
+      // If running outside Miro, show a friendly hint
+      if (!('miro' in window) || !miro?.board) {
+        document.body.innerHTML =
+          '<div style="font:14px system-ui; padding:16px;"><b>This page runs inside a Miro board.</b><br>Open a board in the team where the app is installed.</div>';
+      } else {
+        // Boot when SDK is available; a short poll covers slow injects
+        let tries = 0, timer = setInterval(async () => {
+          if (miro?.board) {
+            clearInterval(timer);
+            await boot();
+          } else if (++tries > 60) {
+            clearInterval(timer);
+            console.log('Coords Panel: SDK not detected in iframe after waiting.');
+          }
+        }, 200);
+      }
     </script>
   </body>
 </html>
