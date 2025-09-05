@@ -1,0 +1,1 @@
+# 250904-miro-coords-panel
