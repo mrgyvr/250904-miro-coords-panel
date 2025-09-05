@@ -2,40 +2,121 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Coords Panel – Entrypoint</title>
+    <title>Coords Panel – Entrypoint (Diagnostic)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
-      body { font:14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin:0; }
-      #hint { padding:16px; }
+      :root { color-scheme: light dark; }
+      body { margin:0; font:14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+      .wrap { padding:16px; max-width:880px; }
+      h1 { font-size:16px; margin:0 0 10px; }
+      .log { font:13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+             background: rgba(0,0,0,.04); border-radius:8px; padding:12px; white-space:pre-wrap; }
+      .btns { margin:10px 0 0; display:flex; gap:8px; flex-wrap:wrap; }
+      button { border:1px solid rgba(0,0,0,.2); background:#fff; border-radius:6px; padding:6px 10px; cursor:pointer; }
+      .note { opacity:.75; margin-top:8px; }
+      .ok   { color:#0b8f3a; }
+      .warn { color:#b36b00; }
+      .err  { color:#b00020; }
+      code  { background: rgba(0,0,0,.06); padding:2px 4px; border-radius:4px; }
     </style>
   </head>
   <body>
-    <div id="hint"></div>
+    <div class="wrap">
+      <h1>Coords Panel – Entrypoint (Diagnostic)</h1>
+      <div id="status" class="note">Starting…</div>
+      <div id="log" class="log"></div>
+      <div class="btns" id="actions" style="display:none;">
+        <button id="open">Open panel</button>
+        <button id="reload">Reload</button>
+      </div>
+      <div class="note">Tip: Once you see <span class="ok">openPanel success</span>, you can remove the auto-open line in this file.</div>
+    </div>
 
     <script type="module">
-      const hint = document.getElementById('hint');
-      const show = (html) => { hint.innerHTML = html; };
+      const statusEl = document.getElementById('status');
+      const logEl = document.getElementById('log');
+      const actions = document.getElementById('actions');
+      const btnOpen = document.getElementById('open');
+      const btnReload = document.getElementById('reload');
 
+      const stamp = () => new Date().toLocaleTimeString();
+      const line = (msg, cls='') => {
+        const d = document.createElement('div');
+        d.innerHTML = `${stamp()} — ${msg}`;
+        if (cls) d.className = cls;
+        logEl.appendChild(d);
+        logEl.scrollTop = logEl.scrollHeight;
+      };
+      const info  = (m)=>line(m);
+      const ok    = (m)=>line(`✅ ${m}`, 'ok');
+      const warn  = (m)=>line(`⚠️ ${m}`, 'warn');
+      const error = (m)=>line(`❌ ${m}`, 'err');
+
+      // Cache-buster for panel so updates always show while debugging
+      const PANEL_URL = `panel.html?v=${Date.now()}`;
+
+      // 1) If opened outside Miro, show a helpful message and stop.
       if (!('miro' in window)) {
-        // Hosted is fine, but this page is opened outside of Miro
-        show('<b>This page is meant to run inside a Miro board.</b><br>Open a board in the team where the app is installed.');
-      } else {
+        statusEl.textContent = 'Running OUTSIDE Miro';
+        info('This page is hosted correctly, but it is not inside a Miro board iframe.');
+        info('Open a board in the team where the app is installed; Miro will load this file there.');
+        // (Still let you test that panel.html exists)
         try {
-          // (Optional) wait for SDK to settle
-          if (typeof miro.onReady === 'function') { await miro.onReady(); }
-
-          // Register toolbar icon → open panel
-          miro.board.ui.on('icon:click', () => {
-            // cache-bust panel.html so changes show up immediately
-            miro.board.ui.openPanel({ url: 'panel.html?v=2' });
-          });
-
-          // TEMP (diagnostic): auto-open panel once to prove the app launched.
-          await miro.board.ui.openPanel({ url: 'panel.html?v=2' });
-          // After you see it working, remove the line above.
+          const r = await fetch(PANEL_URL, { cache: 'no-store' });
+          r.ok ? ok(`panel reachable outside Miro: ${PANEL_URL}`) : error(`panel fetch outside Miro failed: HTTP ${r.status}`);
+        } catch(e) { error('panel fetch outside Miro threw: ' + (e?.message || e)); }
+      } else {
+        statusEl.textContent = 'Running INSIDE Miro';
+        info('Miro SDK detected…');
+        try {
+          if (typeof miro.onReady === 'function') {
+            await miro.onReady();
+            ok('miro.onReady() resolved.');
+          } else {
+            warn('miro.onReady() not present (continuing).');
+          }
         } catch (e) {
-          show(`<div style="color:#b00020;">Failed to open panel: ${e?.message || e}</div>`);
+          warn('miro.onReady() threw (continuing): ' + (e?.message || e));
         }
+
+        // 2) Check panel.html is reachable before we try to open it.
+        try {
+          const r = await fetch(PANEL_URL, { cache: 'no-store' });
+          if (r.ok) ok('panel reachable inside Miro.');
+          else error(`panel fetch inside Miro failed: HTTP ${r.status}`);
+        } catch (e) {
+          error('panel fetch inside Miro threw: ' + (e?.message || e));
+        }
+
+        // 3) Register toolbar icon → open panel
+        try {
+          miro.board.ui.on('icon:click', () => {
+            info('icon click → openPanel…');
+            miro.board.ui.openPanel({ url: PANEL_URL })
+              .then(() => ok('openPanel success (icon click).'))
+              .catch(e => error('openPanel error (icon click): ' + (e?.message || e)));
+          });
+          ok('Registered toolbar icon handler.');
+        } catch (e) {
+          error('Failed to register toolbar icon handler: ' + (e?.message || e));
+        }
+
+        // 4) TEMP: Auto-open once so you can see it working immediately.
+        try {
+          info('auto-open → openPanel…');
+          await miro.board.ui.openPanel({ url: PANEL_URL });
+          ok('openPanel success (auto-open).');
+        } catch (e) {
+          error('openPanel error (auto-open): ' + (e?.message || e));
+          warn('If this failed with 404, confirm panel.html exists at the same host/path as index.html.');
+        }
+
+        // Show quick actions
+        actions.style.display = 'flex';
+        btnOpen.onclick = () => miro.board.ui.openPanel({ url: PANEL_URL })
+          .then(() => ok('openPanel success (button).'))
+          .catch(e => error('openPanel error (button): ' + (e?.message || e)));
+        btnReload.onclick = () => location.reload();
       }
     </script>
   </body>
