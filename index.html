@@ -1,20 +1,42 @@
-<script type="module">
-  if (!('miro' in window)) {
-    // Hosted fine but opened outside Miro
-    document.body.innerHTML = '<div style="font:14px system-ui; padding:16px;"><b>This page is meant to run inside a Miro board.</b><br>Open a board in the team where the app is installed.</div>';
-  } else {
-    try {
-      // Register icon click → open panel
-      miro.board.ui.on('icon:click', () => {
-        miro.board.ui.openPanel({ url: 'panel.html' });
-      });
-      // TEMP: auto-open once so we can see it working
-      await miro.board.ui.openPanel({ url: 'panel.html' });
-    } catch (e) {
-      // If something throws, surface it visibly
-      document.body.innerHTML = `<div style="font:14px system-ui; padding:16px; color:#b00020;">
-        Failed to open panel: ${e?.message || e}
-      </div>`;
-    }
-  }
-</script>
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Coords Panel – Entrypoint</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body { font:14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin:0; }
+      #hint { padding:16px; }
+    </style>
+  </head>
+  <body>
+    <div id="hint"></div>
+
+    <script type="module">
+      const hint = document.getElementById('hint');
+      const show = (html) => { hint.innerHTML = html; };
+
+      if (!('miro' in window)) {
+        // Hosted is fine, but this page is opened outside of Miro
+        show('<b>This page is meant to run inside a Miro board.</b><br>Open a board in the team where the app is installed.');
+      } else {
+        try {
+          // (Optional) wait for SDK to settle
+          if (typeof miro.onReady === 'function') { await miro.onReady(); }
+
+          // Register toolbar icon → open panel
+          miro.board.ui.on('icon:click', () => {
+            // cache-bust panel.html so changes show up immediately
+            miro.board.ui.openPanel({ url: 'panel.html?v=2' });
+          });
+
+          // TEMP (diagnostic): auto-open panel once to prove the app launched.
+          await miro.board.ui.openPanel({ url: 'panel.html?v=2' });
+          // After you see it working, remove the line above.
+        } catch (e) {
+          show(`<div style="color:#b00020;">Failed to open panel: ${e?.message || e}</div>`);
+        }
+      }
+    </script>
+  </body>
+</html>
