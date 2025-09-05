@@ -10,19 +10,20 @@
       .wrap { padding:12px; width: 340px; box-sizing: border-box; }
       h3 { margin:0 0 8px; font-size:14px; }
       label { display:block; font-weight:600; margin:10px 0 4px; }
-      input[type="text"] { width:100%; padding:8px; border:1px solid #dcdfe3; border-radius:6px; box-sizing:border-box; }
+      input[type="text"] { width:100%; padding:8px; border:1px solid #dcdfe3; border-radius:6px; box-sizing:border-box; color:#111; background:#fff; }
       input[readonly] { background: rgba(0,0,0,0.03); }
       .grid { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
       .row { display:flex; gap:8px; align-items:center; }
-      button { padding:6px 10px; border:1px solid #dcdfe3; border-radius:6px; background:#fff; cursor:pointer; }
+      button { padding:6px 10px; border:1px solid #dcdfe3; border-radius:6px; background:#fff; color:#111; cursor:pointer; }
       .muted { opacity:.7; font-size:12px; }
-      .ok { color:#0b8f3a; }
-      .warn { color:#b36b00; }
-      .err { color:#b00020; }
       .spacer { height:8px; }
       .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px; }
+      @media (prefers-color-scheme: dark) {
+        input[type="text"] { background:#1f2227; border-color:#3a3f46; color:#eaeef3; }
+        input[readonly] { background:#262a30; }
+        button { background:#2a2f36; border-color:#3a3f46; color:#eaeef3; }
+      }
     </style>
-    <!-- (optional; harmless if SDK already injected) -->
     <script src="https://miro.com/app/static/sdk/v2/miro.js"></script>
   </head>
   <body>
@@ -54,7 +55,11 @@
       </div>
 
       <label for="baseUrl">Your page URL (with embedded board)</label>
-      <input id="baseUrl" type="text" placeholder="https://parkerthatch.com/pages/pt-mood-board" />
+      <input
+        id="baseUrl"
+        type="text"
+        placeholder="https://parkerthatch.com/pages/pt-mood-board"
+      />
 
       <label for="shareUrl">Shareable link</label>
       <input id="shareUrl" type="text" class="mono" readonly />
@@ -69,6 +74,9 @@
     </div>
 
     <script type="module">
+      // ✅ Default base URL used if the field is empty (so placeholder acts as a real default)
+      const DEFAULT_BASE_URL = "https://parkerthatch.com/pages/pt-mood-board";
+
       const statusEl = document.getElementById('status');
       const cxEl = document.getElementById('cx');
       const cyEl = document.getElementById('cy');
@@ -79,55 +87,40 @@
       const resetZBtn = document.getElementById('resetZ');
       const hintEl = document.getElementById('hint');
 
-      // default zoom = 1 unless user provides
-      function getZoom() {
+      // On load, if user hasn't typed anything, prefill with DEFAULT_BASE_URL
+      if (!baseUrlEl.value) baseUrlEl.value = DEFAULT_BASE_URL;
+
+      const getZoom = () => {
         const v = (zEl.value || '').trim();
         const n = Number(v);
         return Number.isFinite(n) && n > 0 ? n : 1;
-      }
-
-      function fmt(n) {
-        // trim to 2 decimals without scientific notation
-        return Number(n.toFixed(2)).toString();
-      }
+      };
+      const fmt = (n) => Number(n.toFixed(2)).toString();
 
       function buildLink(sel) {
         shareUrlEl.value = '';
         hintEl.textContent = '';
 
-        // require base URL
         const raw = (baseUrlEl.value || '').trim();
-        if (!raw) {
-          hintEl.textContent = 'Enter your page URL above.';
-          return;
-        }
+        if (!raw) { hintEl.textContent = 'Enter your page URL above.'; return; }
 
-        // need a selection with x/y
         if (!sel || typeof sel.x !== 'number' || typeof sel.y !== 'number') {
-          hintEl.textContent = 'Select an item to generate link.';
-          return;
+          hintEl.textContent = 'Select an item to generate link.'; return;
         }
 
-        // build URL with cx, cy, z params
         let u;
-        try {
-          u = new URL(raw, location.href); // supports bare domains, paths, etc.
-        } catch {
-          hintEl.textContent = 'Base URL is not valid.';
-          return;
-        }
+        try { u = new URL(raw, location.href); }
+        catch { hintEl.textContent = 'Base URL is not valid.'; return; }
 
         u.searchParams.set('cx', fmt(sel.x));
         u.searchParams.set('cy', fmt(sel.y));
         u.searchParams.set('z', fmt(getZoom()));
-
         shareUrlEl.value = u.href;
       }
 
       async function syncAndRender(it) {
         if (!it) {
-          cxEl.value = '';
-          cyEl.value = '';
+          cxEl.value = ''; cyEl.value = '';
           statusEl.textContent = 'Select any item on the board…';
           buildLink(null);
           return;
@@ -147,7 +140,7 @@
         buildLink({ x, y });
       }
 
-      // inputs re-build the link
+      // Rebuild link when inputs change
       [baseUrlEl, zEl].forEach(el => el.addEventListener('input', () => {
         const x = parseFloat(cxEl.value), y = parseFloat(cyEl.value);
         if (Number.isFinite(x) && Number.isFinite(y)) buildLink({ x, y });
@@ -166,13 +159,12 @@
           copyBtn.textContent = 'Copied!';
           setTimeout(() => { copyBtn.textContent = 'Copy'; }, 900);
         } catch {
-          // fallback: select text
           shareUrlEl.select();
           hintEl.textContent = 'Press ⌘/Ctrl+C to copy.';
         }
       });
 
-      // Initial selection & live updates
+      // Initial selection + live updates
       (async () => {
         try {
           const sel = await miro.board.getSelection();
