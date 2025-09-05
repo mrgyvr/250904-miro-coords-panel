@@ -4,30 +4,39 @@
     <meta charset="utf-8" />
     <title>CoordsPanel</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      This panel builds shareable links using ?wid=<widget_id> for the Miro Live Embed.
+      Behavior:
+        • Normal item selected → use that item's ID
+        • Group selected       → find largest child (by area) and use that child's ID
+        • Frame selected       → use frame's ID (recommended for "areas" of content)
+      Requirements: boards:read scope
+    -->
     <style>
       :root { color-scheme: light dark; }
+      /* Compact panel — only as tall as needed */
+      html, body { height: 100%; }
       body { margin:0; font:13px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
       .wrap { padding:12px; width:340px; box-sizing:border-box; }
       h3 { margin:0 0 8px; font-size:14px; }
       label { display:block; font-weight:600; margin:10px 0 4px; }
-      input[type="text"] {
+      input[type="text"]{
         width:100%; padding:8px; border:1px solid #dcdfe3; border-radius:6px;
         box-sizing:border-box; color:#111; background:#fff;
       }
-      input[readonly] { background:rgba(0,0,0,0.03); }
-      .grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-      .row { display:flex; gap:8px; align-items:center; }
-      button {
+      input[readonly]{ background:rgba(0,0,0,0.03); }
+      .row{ display:flex; gap:8px; align-items:center; }
+      button{
         padding:6px 10px; border:1px solid #dcdfe3; border-radius:6px;
         background:#fff; color:#111; cursor:pointer;
       }
-      .muted { opacity:.7; font-size:12px; }
-      .spacer { height:8px; }
-      .mono { font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12px; }
-      @media (prefers-color-scheme: dark) {
-        input[type="text"] { background:#1f2227; border-color:#3a3f46; color:#eaeef3; }
-        input[readonly] { background:#262a30; }
-        button { background:#2a2f36; border-color:#3a3f46; color:#eaeef3; }
+      .muted{ opacity:.75; font-size:12px; }
+      .mono{ font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12px; }
+      .note{ margin-top:8px; }
+      @media (prefers-color-scheme: dark){
+        input[type="text"]{ background:#1f2227; border-color:#3a3f46; color:#eaeef3; }
+        input[readonly]{ background:#262a30; }
+        button{ background:#2a2f36; border-color:#3a3f46; color:#eaeef3; }
       }
     </style>
     <script src="https://miro.com/app/static/sdk/v2/miro.js"></script>
@@ -36,31 +45,17 @@
     <div class="wrap">
       <h3>CoordsPanel</h3>
 
-      <div id="status" class="muted">Select any item on the board…</div>
+      <!-- Live status / guidance -->
+      <div id="status" class="muted">Select an item on the board…</div>
 
-      <div class="grid">
-        <div>
-          <label for="cx">Center X</label>
-          <input id="cx" type="text" class="mono" readonly />
-        </div>
-        <div>
-          <label for="cy">Center Y</label>
-          <input id="cy" type="text" class="mono" readonly />
-        </div>
-      </div>
+      <!-- Show what we’re going to use as the anchor -->
+      <label for="itemType">Anchor type</label>
+      <input id="itemType" type="text" class="mono" readonly placeholder="(none)"/>
 
-      <div class="row">
-        <div style="flex:1">
-          <label for="z">Zoom (z)</label>
-          <!-- value is set in JS to make it a real default, not just placeholder -->
-          <input id="z" type="text" class="mono" placeholder="1" />
-        </div>
-        <div style="width:120px">
-          <label>&nbsp;</label>
-          <button id="resetZ" type="button">Reset to 1</button>
-        </div>
-      </div>
+      <label for="wid">Widget ID (used in ?wid=…)</label>
+      <input id="wid" type="text" class="mono" readonly placeholder="(none)"/>
 
+      <!-- Your site/page that contains the Live Embed -->
       <label for="baseUrl">Your page URL (with embedded board)</label>
       <input
         id="baseUrl"
@@ -68,99 +63,169 @@
         placeholder="https://parkerthatch.com/pages/pt-mood-board"
       />
 
+      <!-- Final link to share (always wid=…) -->
       <label for="shareUrl">Shareable link</label>
-      <input id="shareUrl" type="text" class="mono" readonly />
+      <input id="shareUrl" type="text" class="mono" readonly placeholder="(select an item)"/>
 
       <div class="row">
         <button id="copy" type="button">Copy</button>
         <span id="hint" class="muted"></span>
       </div>
 
-      <div class="spacer"></div>
-      <div class="muted">Tip: Link updates whenever selection or inputs change.</div>
+      <div class="note muted">
+        Tips:
+        <ul style="margin:6px 0 0 18px; padding:0;">
+          <li>For grouped items, we pick the largest child.</li>
+          <li>Frames make great, stable anchors (use a frame ID).</li>
+        </ul>
+      </div>
     </div>
 
     <script type="module">
+      // ========= Configuration =========
       const DEFAULT_BASE_URL = "https://parkerthatch.com/pages/pt-mood-board";
-      const DEFAULT_Z = "1";
 
-      const statusEl = document.getElementById('status');
-      const cxEl = document.getElementById('cx');
-      const cyEl = document.getElementById('cy');
-      const zEl = document.getElementById('z');
-      const baseUrlEl = document.getElementById('baseUrl');
+      // ========= Elements =========
+      const statusEl   = document.getElementById('status');
+      const itemTypeEl = document.getElementById('itemType');
+      const widEl      = document.getElementById('wid');
+      const baseUrlEl  = document.getElementById('baseUrl');
       const shareUrlEl = document.getElementById('shareUrl');
-      const copyBtn = document.getElementById('copy');
-      const resetZBtn = document.getElementById('resetZ');
-      const hintEl = document.getElementById('hint');
+      const copyBtn    = document.getElementById('copy');
+      const hintEl     = document.getElementById('hint');
 
-      // ✅ Make defaults real values (not just placeholders)
+      // Make the default URL a *real value* (not just placeholder)
       if (!baseUrlEl.value) baseUrlEl.value = DEFAULT_BASE_URL;
-      if (!zEl.value) zEl.value = DEFAULT_Z;
 
-      const getZoom = () => {
-        const v = (zEl.value || '').trim();
-        const n = Number(v);
-        return Number.isFinite(n) && n > 0 ? n : 1;
-      };
-      const fmt = (n) => Number(n.toFixed(2)).toString();
+      // Utility: safe toString + truncation for display
+      const short = (s, n=10) => (s && s.length > n ? s.slice(0, n) + "…" : s || "");
 
-      function buildLink(sel) {
+      // Build final ?wid=… link
+      function buildLink(widgetId) {
         shareUrlEl.value = '';
         hintEl.textContent = '';
 
         const raw = (baseUrlEl.value || '').trim();
         if (!raw) { hintEl.textContent = 'Enter your page URL above.'; return; }
 
-        if (!sel || typeof sel.x !== 'number' || typeof sel.y !== 'number') {
-          hintEl.textContent = 'Select an item to generate link.'; return;
-        }
+        if (!widgetId) { hintEl.textContent = 'Select an item to generate link.'; return; }
 
         let u;
         try { u = new URL(raw, location.href); }
         catch { hintEl.textContent = 'Base URL is not valid.'; return; }
 
-        u.searchParams.set('cx', fmt(sel.x));
-        u.searchParams.set('cy', fmt(sel.y));
-        u.searchParams.set('z', fmt(getZoom()));
+        // We only emit wid, since the embed now uses moveToWidget
+        u.searchParams.set('wid', widgetId);
         shareUrlEl.value = u.href;
       }
 
-      async function syncAndRender(it) {
-        if (!it) {
-          cxEl.value = ''; cyEl.value = '';
-          statusEl.textContent = 'Select any item on the board…';
-          buildLink(null);
-          return;
+      // Given an array of items, choose the largest by area (skip groups/connectors)
+      function pickLargestByArea(items) {
+        if (!Array.isArray(items) || items.length === 0) return null;
+        let best = null, bestArea = -1;
+        for (const it of items) {
+          // Skip non-anchorable/container-ish types
+          const t = String(it?.type || '');
+          if (t === 'group' || t === 'line' || t === 'connector' || t === 'arrow') continue;
+
+          // Make sure we have size info; sync if necessary
+          const b = it.bounds || { width: it.width, height: it.height };
+          const w = Number(b?.width ?? NaN);
+          const h = Number(b?.height ?? NaN);
+          const area = (Number.isFinite(w) && Number.isFinite(h)) ? Math.abs(w*h) : 0;
+
+          if (area > bestArea) { best = it; bestArea = area; }
         }
-        try { await it.sync?.(); } catch {}
-        const x = Number(it.x ?? NaN);
-        const y = Number(it.y ?? NaN);
-        if (!Number.isFinite(x) || !Number.isFinite(y)) {
-          statusEl.textContent = 'Item has no coordinates yet.';
-          cxEl.value = ''; cyEl.value = '';
-          buildLink(null);
-          return;
-        }
-        cxEl.value = fmt(x);
-        cyEl.value = fmt(y);
-        statusEl.textContent = `Selected: ${it.type} (${it.id.slice(0,6)}…)`;
-        buildLink({ x, y });
+        return best || null;
       }
 
-      // Rebuild link when inputs change
-      [baseUrlEl, zEl].forEach(el => el.addEventListener('input', () => {
-        const x = parseFloat(cxEl.value), y = parseFloat(cyEl.value);
-        if (Number.isFinite(x) && Number.isFinite(y)) buildLink({ x, y });
-        else buildLink(null);
-      }));
-      resetZBtn.addEventListener('click', () => {
-        zEl.value = DEFAULT_Z;
-        const x = parseFloat(cxEl.value), y = parseFloat(cyEl.value);
-        if (Number.isFinite(x) && Number.isFinite(y)) buildLink({ x, y });
+      // For a single selected item, decide which anchor ID to use:
+      //  - frame → itself
+      //  - group → largest child (if we can fetch children)
+      //  - other → itself
+      async function resolveAnchorFromSelection(sel) {
+        if (!sel) return { anchor: null, note: 'No selection' };
+
+        // If it’s a frame or a "normal" item, just use it
+        const t = String(sel.type || '');
+        if (t === 'frame') {
+          return { anchor: sel, note: 'Using selected frame' };
+        }
+        if (t && t !== 'group') {
+          return { anchor: sel, note: `Using selected ${t}` };
+        }
+
+        // If it’s a GROUP, try to fetch its children and pick the largest one
+        if (t === 'group') {
+          try {
+            // Some SDK payloads expose childrenIds; try that first.
+            let children = [];
+            if (Array.isArray(sel.childrenIds) && sel.childrenIds.length) {
+              // v2 get() can accept a filter object; here we pass ids if supported.
+              // If this throws in your SDK build, we catch below and show guidance.
+              children = await miro.board.get({ id: sel.childrenIds });
+            } else if (typeof sel.getChildren === 'function') {
+              // Alternative API form (if provided on the object)
+              children = await sel.getChildren();
+            }
+
+            // Ensure bounds are up-to-date (best-effort)
+            await Promise.all(children.map(ch => ch?.sync?.().catch(()=>{})));
+
+            const largest = pickLargestByArea(children);
+            if (largest) {
+              return { anchor: largest, note: 'Group: using largest child item' };
+            }
+            // No suitable child found
+            return {
+              anchor: null,
+              note: 'Group selected; no suitable child found. Tip: wrap items in a Frame and select the frame.'
+            };
+          } catch (e) {
+            // Couldn’t fetch children (SDK differences or missing APIs)
+            return {
+              anchor: null,
+              note: 'Group selected but child items not accessible. Tip: wrap items in a Frame and select the frame.'
+            };
+          }
+        }
+
+        // Unknown type: do nothing
+        return { anchor: null, note: 'Unsupported selection type' };
+      }
+
+      // Update UI with the resolved anchor (or guidance)
+      async function syncAndRender(sel) {
+        // Resolve what we will anchor to
+        const { anchor, note } = await resolveAnchorFromSelection(sel);
+
+        if (!anchor) {
+          itemTypeEl.value = '';
+          widEl.value = '';
+          shareUrlEl.value = '';
+          statusEl.textContent = note || 'Select an item on the board…';
+          hintEl.textContent = (note && note.startsWith('Group')) ? 'Frames make ideal anchors.' : '';
+          return;
+        }
+
+        try { await anchor.sync?.(); } catch {}
+
+        const t = String(anchor.type || 'item');
+        const id = String(anchor.id || '');
+        itemTypeEl.value = `${t} (${short(id, 12)})`;
+        widEl.value = id;
+        statusEl.textContent = note || `Selected: ${t} (${short(id, 12)})`;
+
+        buildLink(id);
+      }
+
+      // Rebuild link if the base URL changes
+      baseUrlEl.addEventListener('input', () => {
+        const id = widEl.value.trim();
+        buildLink(id || null);
       });
 
-      // ✅ Robust full-copy logic (works across browsers)
+      // Robust copy (works across browsers)
       copyBtn.addEventListener('click', async () => {
         const val = shareUrlEl.value;
         if (!val) return;
@@ -169,7 +234,6 @@
           copyBtn.textContent = 'Copied!';
           setTimeout(() => { copyBtn.textContent = 'Copy'; }, 900);
         } catch {
-          // Fallback: hidden textarea ensures full string copies
           const ta = document.createElement('textarea');
           ta.value = val;
           ta.setAttribute('readonly', '');
@@ -185,18 +249,19 @@
         }
       });
 
-      // Initial selection + live updates
+      // Initial read + live updates
       (async () => {
         try {
           const sel = await miro.board.getSelection();
-          await syncAndRender(sel[0] || null);
+          await syncAndRender(sel?.[0] || null);
         } catch (e) {
-          statusEl.textContent = 'Unable to read selection. Do you have boards:read scope?';
+          statusEl.textContent = 'Unable to read selection. Does the app have boards:read scope?';
         }
       })();
 
+      // Listen for selection changes
       miro.board.ui.on('selection:update', async (e) => {
-        const it = e.items?.[0] || null;
+        const it = (Array.isArray(e.items) && e.items.length) ? e.items[0] : null;
         await syncAndRender(it);
       });
     </script>
